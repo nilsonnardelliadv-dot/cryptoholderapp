@@ -2513,7 +2513,7 @@ async function deleteAlertFromCloud(id) {
 <script>
 async function migrateLocalToBack4App() {
   // MIGRAR TOKENS SALVOS LOCALMENTE
-  const oldTokens = JSON.parse(localStorage.getItem("savedTokens") || "[]");
+  const oldTokens = JSON.parse(localStorage.getItem("selectedCoins") || "[]");
   for (let token of oldTokens) {
     await saveTokenToCloud(token.symbol);
   }
