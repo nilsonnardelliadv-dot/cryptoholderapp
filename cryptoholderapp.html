@@ -2513,19 +2513,19 @@ async function deleteAlertFromCloud(id) {
 <script>
 async function migrateLocalToBack4App() {
   // MIGRAR TOKENS SALVOS LOCALMENTE
-  const oldTokens = JSON.parse(localStorage.getItem("selectedCoins") || "[]");
+  const oldTokens = JSON.parse(localStorage.getItem("holder_tokens") || "[]");
   for (let token of oldTokens) {
     await saveTokenToCloud(token.symbol);
   }
 
   // MIGRAR ALERTAS SALVOS LOCALMENTE
-  const oldAlerts = JSON.parse(localStorage.getItem("alertList") || "[]");
+  const oldAlerts = JSON.parse(localStorage.getItem("holder_alerts") || "[]");
   for (let alert of oldAlerts) {
     await saveAlertToCloud(alert.symbol, alert.price, alert.note);
   }
 
   // MIGRAR SIMULAÇÕES DE TRADE SALVAS LOCALMENTE
-  const oldTrades = JSON.parse(localStorage.getItem("tradeSimulations") || "[]");
+  const oldTrades = JSON.parse(localStorage.getItem("holder_trades") || "[]");
   for (let t of oldTrades) {
     await saveTradeSimulation(
       t.symbol,
