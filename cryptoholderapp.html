@@ -2387,5 +2387,128 @@
             });
         });
     </script>
+<script src="https://npmcdn.com/parse/dist/parse.min.js"></script>
+<script>
+  Parse.initialize("44JEEcVpBpR0tsITUQ5XDo2twhiU8Q0ugaS7FgFO", "uFZs7jlMlqnISIWVs0YeGKHjMF5laPNklNkFum97");
+  Parse.serverURL = "https://parseapi.back4app.com/";
+</script>
+<script>
+async function saveTokenToCloud(symbol) {
+  const Token = Parse.Object.extend("UserTokens");
+  const token = new Token();
+
+  token.set("symbol", symbol);
+  token.set("addedAt", Date.now());
+
+  await token.save();
+}
+</script>
+<script>
+async function loadTokensFromCloud() {
+  const Token = Parse.Object.extend("UserTokens");
+  const query = new Parse.Query(Token);
+  query.ascending("symbol");
+
+  const results = await query.find();
+  return results.map(r => ({
+    id: r.id,
+    symbol: r.get("symbol"),
+    addedAt: r.get("addedAt")
+  }));
+}
+</script>
+<script>
+async function deleteTokenFromCloud(id) {
+  const Token = Parse.Object.extend("UserTokens");
+  const query = new Parse.Query(Token);
+  const obj = await query.get(id);
+  await obj.destroy();
+}
+</script>
+<script>
+async function saveTradeSimulation(symbol, buy, sell, percent, value, note, strategy, qty) {
+  const Trade = Parse.Object.extend("TradeSimulations");
+  const trade = new Trade();
+
+  trade.set("symbol", symbol);
+  trade.set("buyPrice", buy);
+  trade.set("sellPrice", sell);
+  trade.set("profitPercent", percent);
+  trade.set("profitValue", value);
+  trade.set("note", note);
+  trade.set("strategy", strategy || "");
+  trade.set("quantity", qty || 0);
+  trade.set("createdAtF", Date.now());
+
+  await trade.save();
+}
+</script>
+<script>
+async function loadTradeSimulations() {
+  const Trade = Parse.Object.extend("TradeSimulations");
+  const query = new Parse.Query(Trade);
+  query.descending("createdAtF");
+
+  const results = await query.find();
+  return results.map(r => ({
+    id: r.id,
+    symbol: r.get("symbol"),
+    buyPrice: r.get("buyPrice"),
+    sellPrice: r.get("sellPrice"),
+    profitPercent: r.get("profitPercent"),
+    profitValue: r.get("profitValue"),
+    note: r.get("note"),
+    strategy: r.get("strategy"),
+    quantity: r.get("quantity"),
+    createdAt: r.get("createdAtF")
+  }));
+}
+</script>
+<script>
+async function deleteTradeSimulation(id) {
+  const Trade = Parse.Object.extend("TradeSimulations");
+  const query = new Parse.Query(Trade);
+  const obj = await query.get(id);
+  await obj.destroy();
+}
+</script>
+<script>
+async function saveAlertToCloud(symbol, price, note) {
+  const Alert = Parse.Object.extend("Alerts");
+  const alert = new Alert();
+
+  alert.set("symbol", symbol);
+  alert.set("price", Number(price));
+  alert.set("note", note);
+  alert.set("createdAtF", Date.now());
+
+  await alert.save();
+}
+</script>
+<script>
+async function loadAlertsFromCloud() {
+  const Alert = Parse.Object.extend("Alerts");
+  const query = new Parse.Query(Alert);
+  query.descending("createdAtF");
+
+  const results = await query.find();
+
+  return results.map(r => ({
+    id: r.id,
+    symbol: r.get("symbol"),
+    price: r.get("price"),
+    note: r.get("note"),
+    createdAt: r.get("createdAtF")
+  }));
+}
+</script>
+<script>
+async function deleteAlertFromCloud(id) {
+  const Alert = Parse.Object.extend("Alerts");
+  const query = new Parse.Query(Alert);
+  const obj = await query.get(id);
+  await obj.destroy();
+}
+</script>
 </body>
 </html>
