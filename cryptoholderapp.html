@@ -2510,5 +2510,42 @@ async function deleteAlertFromCloud(id) {
   await obj.destroy();
 }
 </script>
+<script>
+async function migrateLocalToBack4App() {
+  // MIGRAR TOKENS SALVOS LOCALMENTE
+  const oldTokens = JSON.parse(localStorage.getItem("savedTokens") || "[]");
+  for (let token of oldTokens) {
+    await saveTokenToCloud(token.symbol);
+  }
+
+  // MIGRAR ALERTAS SALVOS LOCALMENTE
+  const oldAlerts = JSON.parse(localStorage.getItem("alertList") || "[]");
+  for (let alert of oldAlerts) {
+    await saveAlertToCloud(alert.symbol, alert.price, alert.note);
+  }
+
+  // MIGRAR SIMULAÇÕES DE TRADE SALVAS LOCALMENTE
+  const oldTrades = JSON.parse(localStorage.getItem("tradeSimulations") || "[]");
+  for (let t of oldTrades) {
+    await saveTradeSimulation(
+      t.symbol,
+      t.buyPrice,
+      t.sellPrice,
+      t.profitPercent,
+      t.profitValue,
+      t.note,
+      t.strategy,
+      t.quantity
+    );
+  }
+
+  console.log("Migração concluída!");
+}
+</script>
+<script>
+window.addEventListener("load", () => {
+  migrateLocalToBack4App();
+});
+</script>
 </body>
 </html>
