@@ -464,14 +464,22 @@ const Cloud = {
         if (Cloud.isInitialized) return true;
         
         try {
-            // Inicializa Firebase
-            firebase.initializeApp(FirebaseConfig);
+            // 🔒 VERIFICAR SE JÁ FOI INICIALIZADO - LINHA MAIS IMPORTANTE!
+            if (!firebase.apps.length) {
+                firebase.initializeApp(FirebaseConfig);
+            }
             Cloud.db = firebase.firestore();
+            
+            // 🧪 TESTAR REALMENTE A CONEXÃO
+            await Cloud.db.collection('test').doc('test').get();
+            
             Cloud.isInitialized = true;
-            console.log('✅ Firebase conectado');
+            console.log('✅ Firebase conectado e funcionando');
             return true;
         } catch (error) {
-            console.log('📱 Modo local (sem nuvem)');
+            console.log('❌ Erro ao conectar Firebase:', error);
+            Cloud.isInitialized = false;
+            Cloud.db = null;
             return false;
         }
     },
@@ -486,56 +494,64 @@ const Cloud = {
     },
     
     saveAllData: async () => {
-        // Salva localmente primeiro (fallback)
-        localStorage.setItem('holder_tokens', JSON.stringify(App.State.tokens));
-        localStorage.setItem('holder_alerts', JSON.stringify(App.State.alerts));
-        localStorage.setItem('holder_trades', JSON.stringify(App.State.trades));
-        localStorage.setItem('holder_settings', JSON.stringify(App.State.settings));
-        
-        if (!Cloud.db) return false;
-        
-        try {
-            const userData = {
-                tokens: App.State.tokens,
-                alerts: App.State.alerts,
-                trades: App.State.trades,
-                settings: App.State.settings,
-                lastUpdate: new Date().toISOString()
-            };
-            
-            await Cloud.db.collection('cryptoUsers').doc(Cloud.getUserId()).set(userData);
-            console.log('💾 Dados salvos na nuvem');
-            return true;
-        } catch (error) {
-            console.log('⚠️ Salvamento local (sem nuvem)');
-            return false;
-        }
-    },
+    console.log('💾 Tentando salvar dados...');
     
-    loadAllData: async () => {
-        // Tenta carregar da nuvem primeiro
-        if (Cloud.db) {
-            try {
-                const doc = await Cloud.db.collection('cryptoUsers').doc(Cloud.getUserId()).get();
-                if (doc.exists) {
-                    console.log('📥 Dados carregados da nuvem');
-                    return doc.data();
-                }
-            } catch (error) {
-                console.log('❌ Erro ao carregar da nuvem');
-            }
-        }
-        
-        // Fallback para localStorage
-        console.log('📥 Carregando dados locais');
-        return {
-            tokens: JSON.parse(localStorage.getItem('holder_tokens')) || ['BTCUSDT', 'ETHUSDT'],
-            alerts: JSON.parse(localStorage.getItem('holder_alerts')) || [],
-            trades: JSON.parse(localStorage.getItem('holder_trades')) || [],
-            settings: JSON.parse(localStorage.getItem('holder_settings')) || { autoRefresh: true, refreshInterval: 60 }
-        };
+    // Salvar localmente primeiro (fallback)
+    localStorage.setItem('holder_tokens', JSON.stringify(App.State.tokens));
+    localStorage.setItem('holder_alerts', JSON.stringify(App.State.alerts));
+    localStorage.setItem('holder_trades', JSON.stringify(App.State.trades));
+    localStorage.setItem('holder_settings', JSON.stringify(App.State.settings));
+    
+    if (!Cloud.db || !Cloud.isInitialized) {
+        console.log('⚠️ Firebase não disponível, salvando apenas localmente');
+        return false;
     }
-};
+    
+    try {
+        const userData = {
+            tokens: App.State.tokens,
+            alerts: App.State.alerts,
+            trades: App.State.trades,
+            settings: App.State.settings,
+            lastUpdate: new Date().toISOString()
+        };
+        
+        console.log('📤 Enviando para Firebase:', userData);
+        await Cloud.db.collection('cryptoUsers').doc(Cloud.getUserId()).set(userData);
+        console.log('✅ Dados salvos na nuvem com sucesso!');
+        return true;
+    } catch (error) {
+        console.error('❌ Erro ao salvar na nuvem:', error);
+        return false;
+    }
+},
+
+ loadAllData: async () => {
+    console.log('📥 Tentando carregar dados da nuvem...');
+    
+    // Primeiro tenta carregar do Firebase
+    if (Cloud.db && Cloud.isInitialized) {
+        try {
+            const doc = await Cloud.db.collection('cryptoUsers').doc(Cloud.getUserId()).get();
+            if (doc.exists) {
+                const data = doc.data();
+                console.log('✅ Dados carregados da nuvem:', data);
+                return data;
+            }
+        } catch (error) {
+            console.error('❌ Erro ao carregar da nuvem:', error);
+        }
+    }
+    
+    // Fallback para localStorage
+    console.log('📥 Carregando dados locais (fallback)');
+    return {
+        tokens: JSON.parse(localStorage.getItem('holder_tokens')) || ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT', 'XRPUSDT', 'DOTUSDT', 'LINKUSDT', 'LTCUSDT', 'BCHUSDT'],
+        alerts: JSON.parse(localStorage.getItem('holder_alerts')) || [],
+        trades: JSON.parse(localStorage.getItem('holder_trades')) || [],
+        settings: JSON.parse(localStorage.getItem('holder_settings')) || { autoRefresh: true, refreshInterval: 60, alertSounds: true, defaultTimeframe: '1h' }
+    };
+}
 
         const App = {
             State: {
@@ -2623,15 +2639,31 @@ Alerts: {
             App.UI.tables();
         });
         
-        document.addEventListener('DOMContentLoaded', () => {
-            App.Core.init();
-            document.getElementById('refreshData').addEventListener('click', App.Core.refreshData);
-            document.getElementById('openSettings').addEventListener('click', App.Settings.openModal);
-            document.getElementById('searchToken').addEventListener('input', (e) => {
-                const term = e.target.value.toUpperCase();
-                document.querySelectorAll('.card').forEach(c => c.style.display = c.dataset.symbol.includes(term) ? 'flex' : 'none');
-            });
-        });
+       document.addEventListener('DOMContentLoaded', async () => {
+    // 🔥 INICIALIZAR FIREBASE PRIMEIRO - PASSO CRÍTICO!
+    const cloudConnected = await Cloud.init();
+    console.log(cloudConnected ? '✅ Conectado ao Firebase' : '❌ Firebase não conectado');
+    
+    // 📥 CARREGAR DADOS DA NUVEM
+    const cloudData = await Cloud.loadAllData();
+    if (cloudData) {
+        App.State.tokens = cloudData.tokens || App.State.tokens;
+        App.State.alerts = cloudData.alerts || App.State.alerts;
+        App.State.trades = cloudData.trades || App.State.trades;
+        App.State.settings = cloudData.settings || App.State.settings;
+        console.log('📥 Dados carregados da nuvem:', cloudData);
+    }
+    
+    // 🚀 INICIAR APLICAÇÃO
+    App.Core.init();
+    
+    document.getElementById('refreshData').addEventListener('click', App.Core.refreshData);
+    document.getElementById('openSettings').addEventListener('click', App.Settings.openModal);
+    document.getElementById('searchToken').addEventListener('input', (e) => {
+        const term = e.target.value.toUpperCase();
+        document.querySelectorAll('.card').forEach(c => c.style.display = c.dataset.symbol.includes(term) ? 'flex' : 'none');
+    });
+});
     </script>
 </body>
 </html>
