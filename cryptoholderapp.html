@@ -302,7 +302,7 @@
                 </div>
                 <div class="flex justify-end gap-2 pt-4">
                     <button onclick="App.Alerts.closeModal()" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg">Cancelar</button>
-                    <button onclick="App.Alerts.save()" class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg">Salvar Alerta</button>
+                    <button onclick="App.Alerts.createAlert()" class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg">Salvar Alerta</button>
                 </div>
             </div>
         </div>
@@ -919,6 +919,8 @@
                         });
                     }, 15000);
                     
+                    setInterval(() => App.Alerts.checkAllAlerts(), 5000);
+
                     // Mobile menu toggle
                     document.getElementById('mobile-menu-toggle').addEventListener('click', function() {
                         const controls = document.getElementById('header-controls');
@@ -1720,209 +1722,275 @@
                 }
             },
 
-            // 7. ALERTAS PROFISSIONAIS
-            Alerts: {
-                save: () => localStorage.setItem("holder_alerts", JSON.stringify(App.State.alerts)),
+            // 7. ALERTAS PROFISSIONAIS - VERSÃO CORRIGIDA
+Alerts: {
+    saveToStorage: () => localStorage.setItem("holder_alerts", JSON.stringify(App.State.alerts)),
+    
+    openModal: (btn = null) => {
+        const modal = document.getElementById('alertsModal');
+        const symbolSelect = document.getElementById('alert-symbol');
+        
+        // Limpar e popular select
+        symbolSelect.innerHTML = '<option value="">Selecione um token</option>';
+        App.State.tokens.forEach(token => {
+            const option = document.createElement('option');
+            option.value = token;
+            option.textContent = token.replace('USDT', '');
+            symbolSelect.appendChild(option);
+        });
+        
+        // Pre-selecionar símbolo se veio de um card específico
+        if (btn) {
+            const card = btn.closest('.card');
+            const symbol = card.dataset.symbol;
+            if (symbol) {
+                symbolSelect.value = symbol;
+            }
+        }
+        
+        // Limpar campos
+        document.getElementById('alert-price').value = '';
+        document.getElementById('alert-notes').value = '';
+        
+        modal.classList.remove('hidden');
+    },
+    
+    closeModal: () => {
+        document.getElementById('alertsModal').classList.add('hidden');
+    },
+    
+    createAlert: () => {
+        const symbol = document.getElementById('alert-symbol').value;
+        const type = document.getElementById('alert-type').value;
+        const price = parseFloat(document.getElementById('alert-price').value);
+        const notes = document.getElementById('alert-notes').value;
+        
+        if (!symbol || !price || isNaN(price)) {
+            alert('Preencha token e preço alvo válido!');
+            return;
+        }
+        
+        const currentPrice = App.State.marketData[symbol.toLowerCase()]?.lastPrice || 0;
+        const percent = currentPrice ? ((price - currentPrice) / currentPrice) * 100 : 0;
+        
+        const alert = {
+            id: Date.now(),
+            symbol: symbol.toUpperCase(),
+            type,
+            targetPrice: price,
+            currentPrice,
+            percent,
+            notes,
+            createdAt: new Date().toLocaleString(),
+            triggered: false
+        };
+        
+        App.State.alerts.push(alert);
+        App.Alerts.saveToStorage();
+        App.Alerts.renderAlertsPanel();
+        App.Alerts.closeModal();
+        
+        App.Alerts.renderInCard(symbol);
+        
+        console.log('Alerta criado:', alert);
+    },
+    
+    openForCard: (btn) => {
+        App.Alerts.openModal(btn);
+    },
+    
+    addFromFibonacci: (symbol, price, levelLabel) => {
+        const currentPrice = App.State.marketData[symbol.toLowerCase()]?.lastPrice || 0;
+        const percent = currentPrice ? ((price - currentPrice) / currentPrice) * 100 : 0;
+        const alert = {
+            id: Date.now(),
+            symbol: symbol.toUpperCase(),
+            type: price > currentPrice ? 'sell' : 'buy',
+            targetPrice: price,
+            currentPrice,
+            percent,
+            notes: `Fibonacci ${levelLabel}`,
+            createdAt: new Date().toLocaleString(),
+            triggered: false
+        };
+        App.State.alerts.push(alert);
+        App.Alerts.saveToStorage();
+        App.Alerts.renderAlertsPanel();
+        document.getElementById('metric-tooltip-overlay').classList.add('tooltip-hidden');
+        App.Alerts.renderInCard(symbol);
+    },
+    
+    checkAlerts: (symbol, currentPrice) => {
+        if (!symbol || !currentPrice) return;
+        
+        const symbolUpper = symbol.toUpperCase();
+        let triggeredAny = false;
+        
+        App.State.alerts.forEach(alert => {
+            if (alert.symbol === symbolUpper && !alert.triggered) {
+                const shouldTrigger = 
+                    (alert.type === 'buy' && currentPrice <= alert.targetPrice) ||
+                    (alert.type === 'sell' && currentPrice >= alert.targetPrice);
                 
-                openModal: (btn = null) => {
-                    const modal = document.getElementById('alertsModal');
-                    const symbolSelect = document.getElementById('alert-symbol');
+                if (shouldTrigger) {
+                    alert.triggered = true;
+                    alert.triggeredAt = new Date().toLocaleString();
+                    alert.actualPrice = currentPrice;
+                    triggeredAny = true;
                     
-                    symbolSelect.innerHTML = '<option value="">Selecione um token</option>';
-                    App.State.tokens.forEach(token => {
-                        const option = document.createElement('option');
-                        option.value = token;
-                        option.textContent = token.replace('USDT', '');
-                        symbolSelect.appendChild(option);
-                    });
-                    
-                    if (btn) {
-                        const card = btn.closest('.card');
-                        const symbol = card.dataset.symbol;
-                        symbolSelect.value = symbol;
-                    }
-                    
-                    modal.classList.remove('hidden');
-                },
-                
-                closeModal: () => {
-                    document.getElementById('alertsModal').classList.add('hidden');
-                },
-                
-                save: () => {
-                    const symbol = document.getElementById('alert-symbol').value;
-                    const type = document.getElementById('alert-type').value;
-                    const price = parseFloat(document.getElementById('alert-price').value);
-                    const notes = document.getElementById('alert-notes').value;
-                    
-                    if (!symbol || !price) {
-                        alert('Preencha token e preço alvo!');
-                        return;
-                    }
-                    
-                    const currentPrice = App.State.marketData[symbol.toLowerCase()]?.lastPrice || 0;
-                    const percent = ((price - currentPrice) / currentPrice) * 100;
-                    
-                    const alert = {
-                        id: Date.now(),
-                        symbol,
-                        type,
-                        targetPrice: price,
-                        currentPrice,
-                        percent,
-                        notes,
-                        createdAt: new Date().toLocaleString(),
-                        triggered: false
-                    };
-                    
-                    App.State.alerts.push(alert);
-                    App.Alerts.save();
-                    App.Alerts.renderAlertsPanel();
-                    App.Alerts.closeModal();
-                    
-                    App.Alerts.renderInCard(symbol);
-                },
-                
-                openForCard: (btn) => {
-                    App.Alerts.openModal(btn);
-                },
-                
-                addFromFibonacci: (symbol, price, levelLabel) => {
-                    const currentPrice = App.State.marketData[symbol.toLowerCase()]?.lastPrice || 0;
-                    const percent = ((price - currentPrice) / currentPrice) * 100;
-                    const alert = {
-                        id: Date.now(),
-                        symbol,
-                        type: price > currentPrice ? 'sell' : 'buy',
-                        targetPrice: price,
-                        currentPrice,
-                        percent,
-                        notes: levelLabel,
-                        createdAt: new Date().toLocaleString(),
-                        triggered: false
-                    };
-                    App.State.alerts.push(alert);
-                    App.Alerts.save();
-                    App.Alerts.renderAlertsPanel();
-                    document.getElementById('metric-tooltip-overlay').classList.add('tooltip-hidden');
-                    App.Alerts.renderInCard(symbol);
-                },
-                
-                checkAlerts: (symbol, currentPrice) => {
-                    App.State.alerts.forEach(alert => {
-                        if (alert.symbol === symbol && !alert.triggered) {
-                            if ((alert.type === 'buy' && currentPrice <= alert.targetPrice) ||
-                                (alert.type === 'sell' && currentPrice >= alert.targetPrice)) {
-                                alert.triggered = true;
-                                alert.triggeredAt = new Date().toLocaleString();
-                                App.Alerts.save();
-                                
-                                if (App.State.settings.alertSounds) {
-                                    // Poderia adicionar um som aqui
-                                }
-                                
-                                App.Alerts.renderAlertsPanel();
-                                App.Alerts.renderInCard(symbol);
-                            }
-                        }
-                    });
-                },
-                
-                remove: (id) => {
-                    App.State.alerts = App.State.alerts.filter(alert => alert.id !== id);
-                    App.Alerts.save();
-                    App.Alerts.renderAlertsPanel();
-                    
-                    App.State.tokens.forEach(symbol => {
-                        App.Alerts.renderInCard(symbol);
-                    });
-                },
-                
-                renderAlertsPanel: () => {
-                    const container = document.getElementById('alertsContent');
-                    const alerts = App.State.alerts.slice(0, 10);
-                    
-                    if (alerts.length === 0) {
-                        container.innerHTML = '<div class="text-gray-500 text-center py-4">Nenhum alerta ativo</div>';
-                        return;
-                    }
-                    
-                    container.innerHTML = '';
-                    alerts.forEach(alert => {
-                        const currentPrice = App.State.marketData[alert.symbol.toLowerCase()]?.lastPrice || alert.currentPrice;
-                        const percent = ((alert.targetPrice - currentPrice) / currentPrice) * 100;
-                        const isBuy = alert.type === 'buy';
-                        
-                        const alertEl = document.createElement('div');
-                        alertEl.className = `bg-dark-800 p-3 rounded border ${alert.triggered ? 
-                            (isBuy ? 'border-green-500 bg-green-900/20' : 'border-orange-500 bg-orange-900/20') : 
-                            'border-gray-700'} mb-2`;
-                        
-                        alertEl.innerHTML = `
-                            <div class="flex justify-between items-start">
-                                <div>
-                                    <strong class="${isBuy ? 'text-green-400' : 'text-orange-400'}">${alert.symbol.replace('USDT', '')}</strong>
-                                    <span class="text-xs ${isBuy ? 'text-green-500' : 'text-orange-500'} ml-2">${isBuy ? 'COMPRA' : 'VENDA'}</span>
-                                    ${alert.triggered ? '<span class="text-xs bg-orange-500 text-white px-1 rounded ml-2">ATINGIDO</span>' : ''}
-                                </div>
-                                <button onclick="App.Alerts.remove(${alert.id})" class="text-gray-500 hover:text-red-500 text-xs">
-                                    <i class="fa-solid fa-times"></i>
-                                </button>
-                            </div>
-                            <div class="mt-2 text-sm">
-                                <div class="flex justify-between">
-                                    <span class="text-gray-400">Alvo:</span>
-                                    <span class="text-white">$${alert.targetPrice.toFixed(4)}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-400">Atual:</span>
-                                    <span class="text-white">$${currentPrice.toFixed(4)}</span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-gray-400">Falta:</span>
-                                    <span class="${percent < 0 ? 'text-red-400' : 'text-green-400'}">${percent.toFixed(2)}%</span>
-                                </div>
-                                ${alert.notes ? `<div class="mt-1 text-xs text-gray-500">${alert.notes}</div>` : ''}
-                                ${alert.triggered ? `<div class="mt-1 text-xs text-orange-400">Atingido em: ${alert.triggeredAt}</div>` : 
-                                `<div class="mt-1 text-xs text-gray-500">Criado: ${alert.createdAt}</div>`}
-                            </div>
-                        `;
-                        
-                        container.appendChild(alertEl);
-                    });
-                },
-                
-                renderInCard: (symbol) => {
-                    const card = document.querySelector(`.card[data-symbol="${symbol}"]`);
-                    if (!card) return;
-                    
-                    const alertList = card.querySelector('.alert-list');
-                    const alerts = App.State.alerts.filter(alert => alert.symbol === symbol && !alert.triggered);
-                    
-                    if (alerts.length === 0) {
-                        alertList.innerHTML = '<div class="text-gray-500 text-center py-2 text-xs">Nenhum alerta</div>';
-                        return;
-                    }
-                    
-                    alertList.innerHTML = '';
-                    alerts.forEach(alert => {
-                        const currentPrice = App.State.marketData[symbol.toLowerCase()]?.lastPrice || alert.currentPrice;
-                        const percent = ((alert.targetPrice - currentPrice) / currentPrice) * 100;
-                        const isBuy = alert.type === 'buy';
-                        
-                        const alertEl = document.createElement('div');
-                        alertEl.className = `flex justify-between items-center p-1 rounded text-xs ${isBuy ? 'bg-green-900/30' : 'bg-orange-900/30'}`;
-                        alertEl.innerHTML = `
-                            <span class="${isBuy ? 'text-green-400' : 'text-orange-400'}">${isBuy ? 'C' : 'V'}</span>
-                            <span class="text-white">$${alert.targetPrice.toFixed(2)}</span>
-                            <span class="${percent < 0 ? 'text-red-400' : 'text-green-400'}">${percent.toFixed(1)}%</span>
-                            <button onclick="App.Alerts.remove(${alert.id})" class="text-red-500 text-[10px]">×</button>
-                        `;
-                        
-                        alertList.appendChild(alertEl);
-                    });
+                    // Mostrar notificação
+                    App.Alerts.showNotification(alert);
                 }
-            },
+            }
+        });
+        
+        if (triggeredAny) {
+            App.Alerts.saveToStorage();
+            App.Alerts.renderAlertsPanel();
+            App.Alerts.renderInCard(symbolUpper);
+        }
+    },
+    
+    showNotification: (alert) => {
+        // Criar notificação visual
+        const notification = document.createElement('div');
+        notification.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+            alert.type === 'buy' ? 'bg-green-900 border-green-500' : 'bg-orange-900 border-orange-500'
+        } border`;
+        
+        notification.innerHTML = `
+            <div class="flex items-center gap-3">
+                <i class="fa-solid ${alert.type === 'buy' ? 'fa-arrow-down text-green-400' : 'fa-arrow-up text-orange-400'}"></i>
+                <div>
+                    <strong class="text-white">${alert.symbol.replace('USDT', '')}</strong>
+                    <div class="text-sm ${alert.type === 'buy' ? 'text-green-300' : 'text-orange-300'}">
+                        ${alert.type === 'buy' ? 'COMPRA' : 'VENDA'} atingiu $${alert.targetPrice.toFixed(4)}
+                    </div>
+                </div>
+                <button onclick="this.parentElement.parentElement.remove()" class="text-gray-400 hover:text-white">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Remover após 5 segundos
+        setTimeout(() => {
+            if (notification.parentElement) {
+                notification.remove();
+            }
+        }, 5000);
+    },
+    
+    remove: (id) => {
+        App.State.alerts = App.State.alerts.filter(alert => alert.id !== id);
+        App.Alerts.saveToStorage();
+        App.Alerts.renderAlertsPanel();
+        
+        // Atualizar todos os cards
+        App.State.tokens.forEach(symbol => {
+            App.Alerts.renderInCard(symbol);
+        });
+    },
+    
+    renderAlertsPanel: () => {
+        const container = document.getElementById('alertsContent');
+        const activeAlerts = App.State.alerts.filter(alert => !alert.triggered).slice(0, 10);
+        
+        if (activeAlerts.length === 0) {
+            container.innerHTML = '<div class="text-gray-500 text-center py-4 text-sm">Nenhum alerta ativo</div>';
+            return;
+        }
+        
+        container.innerHTML = '';
+        activeAlerts.forEach(alert => {
+            const currentPrice = App.State.marketData[alert.symbol.toLowerCase()]?.lastPrice || alert.currentPrice;
+            const percent = currentPrice ? ((alert.targetPrice - currentPrice) / currentPrice) * 100 : 0;
+            const isBuy = alert.type === 'buy';
+            
+            const alertEl = document.createElement('div');
+            alertEl.className = `bg-dark-800 p-3 rounded border ${
+                isBuy ? 'border-green-500' : 'border-orange-500'
+            } mb-2`;
+            
+            alertEl.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div>
+                        <strong class="${isBuy ? 'text-green-400' : 'text-orange-400'}">${alert.symbol.replace('USDT', '')}</strong>
+                        <span class="text-xs ${isBuy ? 'text-green-500' : 'text-orange-500'} ml-2">${isBuy ? 'COMPRA' : 'VENDA'}</span>
+                    </div>
+                    <button onclick="App.Alerts.remove(${alert.id})" class="text-gray-500 hover:text-red-500 text-xs">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                <div class="mt-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Alvo:</span>
+                        <span class="text-white">$${alert.targetPrice.toFixed(4)}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Atual:</span>
+                        <span class="text-white">$${currentPrice.toFixed(4)}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Falta:</span>
+                        <span class="${percent <= 0 ? 'text-green-400' : 'text-red-400'}">${percent.toFixed(2)}%</span>
+                    </div>
+                    ${alert.notes ? `<div class="mt-1 text-xs text-gray-500">${alert.notes}</div>` : ''}
+                    <div class="mt-1 text-xs text-gray-500">Criado: ${alert.createdAt}</div>
+                </div>
+            `;
+            
+            container.appendChild(alertEl);
+        });
+    },
+    
+    renderInCard: (symbol) => {
+        const card = document.querySelector(`.card[data-symbol="${symbol}"]`);
+        if (!card) return;
+        
+        const alertList = card.querySelector('.alert-list');
+        const alerts = App.State.alerts.filter(alert => 
+            alert.symbol === symbol && !alert.triggered
+        );
+        
+        if (alerts.length === 0) {
+            alertList.innerHTML = '<div class="text-gray-500 text-center py-2 text-xs">Nenhum alerta</div>';
+            return;
+        }
+        
+        alertList.innerHTML = '';
+        alerts.forEach(alert => {
+            const currentPrice = App.State.marketData[symbol.toLowerCase()]?.lastPrice || alert.currentPrice;
+            const percent = currentPrice ? ((alert.targetPrice - currentPrice) / currentPrice) * 100 : 0;
+            const isBuy = alert.type === 'buy';
+            
+            const alertEl = document.createElement('div');
+            alertEl.className = `flex justify-between items-center p-1 rounded text-xs ${
+                isBuy ? 'bg-green-900/30 border border-green-700/30' : 'bg-orange-900/30 border border-orange-700/30'
+            } mb-1`;
+            alertEl.innerHTML = `
+                <span class="${isBuy ? 'text-green-400' : 'text-orange-400'} font-bold">${isBuy ? 'C' : 'V'}</span>
+                <span class="text-white text-[10px]">$${alert.targetPrice.toFixed(2)}</span>
+                <span class="${percent <= 0 ? 'text-green-400' : 'text-red-400'} text-[10px]">${percent.toFixed(1)}%</span>
+                <button onclick="App.Alerts.remove(${alert.id})" class="text-red-500 text-[8px] hover:text-red-300">×</button>
+            `;
+            
+            alertList.appendChild(alertEl);
+        });
+    },
+    
+    // Nova função para verificar todos os alertas periodicamente
+    checkAllAlerts: () => {
+        App.State.tokens.forEach(symbol => {
+            const currentPrice = App.State.marketData[symbol.toLowerCase()]?.lastPrice;
+            if (currentPrice) {
+                App.Alerts.checkAlerts(symbol, currentPrice);
+            }
+        });
+    }
+},
 
             // 8. TRADE (simulador)
             Trade: {
@@ -2387,230 +2455,5 @@
             });
         });
     </script>
-<script src="https://npmcdn.com/parse/dist/parse.min.js"></script>
-<script>
-  Parse.initialize("44JEEcVpBpR0tsITUQ5XDo2twhiU8Q0ugaS7FgFO", "uFZs7jlMlqnISIWVs0YeGKHjMF5laPNklNkFum97");
-  Parse.serverURL = "https://parseapi.back4app.com/";
-</script>
-<script>
-async function saveTokenToCloud(symbol) {
-  const Token = Parse.Object.extend("UserTokens");
-  const token = new Token();
-
-  token.set("symbol", symbol);
-  token.set("addedAt", Date.now());
-
-  await token.save();
-}
-</script>
-<script>
-async function loadTokensFromCloud() {
-  const Token = Parse.Object.extend("UserTokens");
-  const query = new Parse.Query(Token);
-  query.ascending("symbol");
-
-  const results = await query.find();
-  return results.map(r => ({
-    id: r.id,
-    symbol: r.get("symbol"),
-    addedAt: r.get("addedAt")
-  }));
-}
-</script>
-<script>
-async function deleteTokenFromCloud(id) {
-  const Token = Parse.Object.extend("UserTokens");
-  const query = new Parse.Query(Token);
-  const obj = await query.get(id);
-  await obj.destroy();
-}
-</script>
-<script>
-async function saveTradeSimulation(symbol, buy, sell, percent, value, note, strategy, qty) {
-  const Trade = Parse.Object.extend("TradeSimulations");
-  const trade = new Trade();
-
-  trade.set("symbol", symbol);
-  trade.set("buyPrice", buy);
-  trade.set("sellPrice", sell);
-  trade.set("profitPercent", percent);
-  trade.set("profitValue", value);
-  trade.set("note", note);
-  trade.set("strategy", strategy || "");
-  trade.set("quantity", qty || 0);
-  trade.set("createdAtF", Date.now());
-
-  await trade.save();
-}
-</script>
-<script>
-async function loadTradeSimulations() {
-  const Trade = Parse.Object.extend("TradeSimulations");
-  const query = new Parse.Query(Trade);
-  query.descending("createdAtF");
-
-  const results = await query.find();
-  return results.map(r => ({
-    id: r.id,
-    symbol: r.get("symbol"),
-    buyPrice: r.get("buyPrice"),
-    sellPrice: r.get("sellPrice"),
-    profitPercent: r.get("profitPercent"),
-    profitValue: r.get("profitValue"),
-    note: r.get("note"),
-    strategy: r.get("strategy"),
-    quantity: r.get("quantity"),
-    createdAt: r.get("createdAtF")
-  }));
-}
-</script>
-<script>
-async function deleteTradeSimulation(id) {
-  const Trade = Parse.Object.extend("TradeSimulations");
-  const query = new Parse.Query(Trade);
-  const obj = await query.get(id);
-  await obj.destroy();
-}
-</script>
-<script>
-async function saveAlertToCloud(symbol, price, note) {
-  const Alert = Parse.Object.extend("Alerts");
-  const alert = new Alert();
-
-  alert.set("symbol", symbol);
-  alert.set("price", Number(price));
-  alert.set("note", note);
-  alert.set("createdAtF", Date.now());
-
-  await alert.save();
-}
-</script>
-<script>
-async function loadAlertsFromCloud() {
-  const Alert = Parse.Object.extend("Alerts");
-  const query = new Parse.Query(Alert);
-  query.descending("createdAtF");
-
-  const results = await query.find();
-
-  return results.map(r => ({
-    id: r.id,
-    symbol: r.get("symbol"),
-    price: r.get("price"),
-    note: r.get("note"),
-    createdAt: r.get("createdAtF")
-  }));
-}
-</script>
-<script>
-async function deleteAlertFromCloud(id) {
-  const Alert = Parse.Object.extend("Alerts");
-  const query = new Parse.Query(Alert);
-  const obj = await query.get(id);
-  await obj.destroy();
-}
-</script>
-<script>
-async function deleteAlertFromCloud(id) {
-  const Alert = Parse.Object.extend("Alerts");
-  const query = new Parse.Query(Alert);
-  const obj = await query.get(id);
-  await obj.destroy();
-}
-    App.Alerts = {
-    openModal() {
-        document.getElementById("alertsModal").classList.remove("hidden");
-        this.populateSymbols();
-    },
-
-    closeModal() {
-        document.getElementById("alertsModal").classList.add("hidden");
-        document.getElementById("alert-symbol").value = "";
-        document.getElementById("alert-price").value = "";
-        document.getElementById("alert-notes").value = "";
-    },
-
-    populateSymbols() {
-        const select = document.getElementById("alert-symbol");
-        select.innerHTML = `<option value="">Selecione um token</option>`;
-
-        App.State.tokens.forEach(sym => {
-            select.innerHTML += `<option value="${sym}">${sym}</option>`;
-        });
-    },
-
-    save() {
-        const symbol = document.getElementById("alert-symbol").value;
-        const type = document.getElementById("alert-type").value;
-        const price = parseFloat(document.getElementById("alert-price").value);
-        const notes = document.getElementById("alert-notes").value;
-
-        if (!symbol || !price) {
-            alert("Preencha corretamente o token e o preço.");
-            return;
-        }
-
-        const item = {
-            id: Date.now(),
-            symbol,
-            type,
-            price,
-            notes,
-            created: new Date().toLocaleString()
-        };
-
-        App.State.alerts.push(item);
-        localStorage.setItem("holder_alerts", JSON.stringify(App.State.alerts));
-
-        this.refreshPanel();
-        this.closeModal();
-    },
-
-    refreshPanel() {
-        const box = document.getElementById("alertsContent");
-        box.innerHTML = "";
-
-        App.State.alerts.forEach(item => {
-            const row = document.createElement("div");
-            row.className = "p-2 border border-orange-500/20 rounded text-xs";
-
-            row.innerHTML = `
-                <div class="flex justify-between text-orange-400 font-bold">
-                    <span>${item.symbol}</span>
-                    <span>${item.type === "buy" ? "Compra" : "Venda"}</span>
-                </div>
-                <div class="text-gray-300">Preço alvo: $${item.price}</div>
-                <div class="text-gray-400 text-[10px]">${item.created}</div>
-                ${item.notes ? `<div class="mt-1 italic text-gray-500">"${item.notes}"</div>` : ""}
-            `;
-
-            box.appendChild(row);
-        });
-    },
-
-    openForCard(btn) {
-        const card = btn.closest(".card");
-        const symbol = card.getAttribute("data-symbol");
-
-        this.openModal();
-        document.getElementById("alert-symbol").value = symbol;
-    },
-
-    check(symbol, price) {
-        const alerts = App.State.alerts;
-
-        alerts.forEach(a => {
-            if (a.symbol === symbol) {
-                if (a.type === "buy" && price <= a.price) {
-                    console.log("ALERTA BUY disparado!", a);
-                }
-                if (a.type === "sell" && price >= a.price) {
-                    console.log("ALERTA SELL disparado!", a);
-                }
-            }
-        });
-    }
-};
-</script>
 </body>
 </html>
