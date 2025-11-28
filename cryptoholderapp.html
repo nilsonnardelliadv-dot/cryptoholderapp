@@ -2369,6 +2369,7 @@
                 }
             }
         };
+
         // Inicialização
         App.Core.onOHLCUpdate((s, tf) => {
             App.UI.updateTokenCard(s.toUpperCase());
@@ -2499,6 +2500,14 @@ async function loadAlertsFromCloud() {
     note: r.get("note"),
     createdAt: r.get("createdAtF")
   }));
+}
+</script>
+<script>
+async function deleteAlertFromCloud(id) {
+  const Alert = Parse.Object.extend("Alerts");
+  const query = new Parse.Query(Alert);
+  const obj = await query.get(id);
+  await obj.destroy();
 }
 </script>
 <script>
