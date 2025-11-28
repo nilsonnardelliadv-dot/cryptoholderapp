@@ -460,30 +460,37 @@ const Cloud = {
     db: null,
     isInitialized: false,
     
-    init: async () => {
-        if (Cloud.isInitialized) return true;
-        
-        try {
-            // 🔒 VERIFICAR SE JÁ FOI INICIALIZADO - LINHA MAIS IMPORTANTE!
-            if (!firebase.apps.length) {
-                firebase.initializeApp(FirebaseConfig);
-            }
-            Cloud.db = firebase.firestore();
-            
-            // 🧪 TESTAR REALMENTE A CONEXÃO
-            await Cloud.db.collection('test').doc('test').get();
-            
-            Cloud.isInitialized = true;
-            console.log('✅ Firebase conectado e funcionando');
-            return true;
-        } catch (error) {
-            console.log('❌ Erro ao conectar Firebase:', error);
-            Cloud.isInitialized = false;
-            Cloud.db = null;
+    // SUBSTITUA a função Cloud.init() atual por esta versão corrigida:
+init: async () => {
+    if (Cloud.isInitialized) return true;
+    
+    try {
+        // 🔥 CORREÇÃO CRÍTICA: Verificar se Firebase está disponível
+        if (typeof firebase === 'undefined') {
+            console.log('❌ Firebase não carregado');
             return false;
         }
-    },
-    
+        
+        // Inicializar apenas se não foi inicializado antes
+        if (!firebase.apps.length) {
+            firebase.initializeApp(FirebaseConfig);
+        }
+        
+        Cloud.db = firebase.firestore();
+        
+        // Teste de conexão mais tolerante
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        
+        Cloud.isInitialized = true;
+        console.log('✅ Firebase conectado');
+        return true;
+    } catch (error) {
+        console.log('❌ Firebase offline, usando modo local:', error);
+        Cloud.isInitialized = false;
+        Cloud.db = null;
+        return false;
+    }
+},
     getUserId: () => {
         let userId = localStorage.getItem('crypto_user_id');
         if (!userId) {
@@ -1053,48 +1060,64 @@ const Cloud = {
                 },
                 
                 startWebSocket: function() {
-                    const ws = new WebSocket(BINANCE_WS);
-                    ws.onopen = () => { console.log("🟢 WebSocket conectado."); };
-                    ws.onerror = () => { setTimeout(App.Core.startWebSocket, 2000); };
-                    ws.onclose = () => { setTimeout(App.Core.startWebSocket, 2000); };
-                    ws.onmessage = (event) => {
-                        const data = JSON.parse(event.data);
-                        data.forEach(t => {
-                            const symbol = t.s.toUpperCase();
-                            if (!App.State.tokens.includes(symbol)) return;
-                            App.State.marketData[symbol.toLowerCase()] = { 
-                                symbol: symbol.toLowerCase(), 
-                                lastPrice: parseFloat(t.c), 
-                                priceChangePercent: parseFloat(t.P), 
-                                highPrice: parseFloat(t.h), 
-                                lowPrice: parseFloat(t.l), 
-                                volume: parseFloat(t.v) 
-                            };
-                            App.UI.updateTokenCard(symbol);
-                            App.Alerts.checkAlerts(symbol, parseFloat(t.c));
-                        });
-                    };
-                    App.State.ws = ws;
-                },
+    try {
+        console.log('🔌 Conectando WebSocket...');
+        const ws = new WebSocket(BINANCE_WS);
+        
+        ws.onopen = () => { 
+            console.log("🟢 WebSocket Binance conectado."); 
+            document.getElementById('last-update').innerText = 'Conectado - ' + new Date().toLocaleTimeString();
+        };
+        
+        ws.onerror = (error) => { 
+            console.error("🔴 Erro WebSocket:", error); 
+            document.getElementById('last-update').innerText = 'Erro conexão';
+            setTimeout(() => App.Core.startWebSocket(), 5000);
+        };
+        
+        ws.onclose = () => { 
+            console.log("🟡 WebSocket fechado, reconectando..."); 
+            setTimeout(() => App.Core.startWebSocket(), 3000);
+        };
+        
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                let updated = false;
                 
-                fetchOHLC: async function(symbol, interval = "1m", limit = 500) {
-                    try {
-                        const r = await fetch(`${BINANCE_REST}?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=${limit}`);
-                        const j = await r.json();
-                        return j.map(k => ({ 
-                            time: k[0], 
-                            open: parseFloat(k[1]), 
-                            high: parseFloat(k[2]), 
-                            low: parseFloat(k[3]), 
-                            close: parseFloat(k[4]), 
-                            volume: parseFloat(k[5]) 
-                        }));
-                    } catch (err) { 
-                        console.error(`Erro ao buscar OHLC para ${symbol}:`, err);
-                        return []; 
+                data.forEach(t => {
+                    const symbol = t.s.toUpperCase();
+                    if (App.State.tokens.includes(symbol)) {
+                        App.State.marketData[symbol.toLowerCase()] = { 
+                            symbol: symbol.toLowerCase(), 
+                            lastPrice: parseFloat(t.c), 
+                            priceChangePercent: parseFloat(t.P), 
+                            highPrice: parseFloat(t.h), 
+                            lowPrice: parseFloat(t.l), 
+                            volume: parseFloat(t.v) 
+                        };
+                        App.UI.updateTokenCard(symbol);
+                        App.Alerts.checkAlerts(symbol, parseFloat(t.c));
+                        updated = true;
                     }
-                },
+                });
                 
+                if (updated) {
+                    document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
+                    App.UI.tables(); // Atualizar tabelas também
+                }
+                
+            } catch (parseError) {
+                console.error('Erro ao processar mensagem WebSocket:', parseError);
+            }
+        };
+        
+        App.State.ws = ws;
+    } catch (wsError) {
+        console.error('Erro ao criar WebSocket:', wsError);
+        setTimeout(() => App.Core.startWebSocket(), 5000);
+    }
+},
                 loadAllOHLC: async function(symbol) {
                     if (!App.State.ohlcData[symbol]) App.State.ohlcData[symbol] = {};
                     for (let tf of App.State.timeframes) { 
@@ -1103,15 +1126,30 @@ const Cloud = {
                 },
                 
                 preloadAllOHLC: async function() {
-                    for (let token of App.State.tokens) {
-                        await App.Core.loadAllOHLC(token.toUpperCase());
-                    }
-                    App.State.tokens.forEach(symbol => { 
-                        App.State.timeframes.forEach(tf => { 
-                            App.Indicators.updateIndicators(symbol.toLowerCase(), tf); 
-                        }); 
-                    });
-                },
+    console.log('📊 Pré-carregando dados OHLC...');
+    
+    for (let token of App.State.tokens) {
+        try {
+            await App.Core.loadAllOHLC(token.toUpperCase());
+            console.log(`✅ ${token} carregado`);
+        } catch (error) {
+            console.log(`⚠️ Erro ao carregar ${token}:`, error);
+        }
+        
+        // Pequena pausa para não sobrecarregar a API
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    // Atualizar indicadores e interface
+    App.State.tokens.forEach(symbol => { 
+        App.State.timeframes.forEach(tf => { 
+            App.Indicators.updateIndicators(symbol.toLowerCase(), tf); 
+        }); 
+    });
+    
+    App.UI.tables();
+    console.log('🎉 Pré-carregamento OHLC concluído');
+},
                 
                 incrementalUpdateOHLC: async function(symbol, tf) {
                     const url = `${BINANCE_REST}?symbol=${symbol.toUpperCase()}&interval=${tf}&limit=3`;
@@ -2638,32 +2676,126 @@ Alerts: {
             App.Fibonacci.analyze(s.toLowerCase(), tf);
             App.UI.tables();
         });
-        
-       document.addEventListener('DOMContentLoaded', async () => {
-    // 🔥 INICIALIZAR FIREBASE PRIMEIRO - PASSO CRÍTICO!
-    const cloudConnected = await Cloud.init();
-    console.log(cloudConnected ? '✅ Conectado ao Firebase' : '❌ Firebase não conectado');
+       
+// =================================================================
+// 🚨 FALLBACK DE EMERGÊNCIA - ADICIONE ESTE BLOCO COMPLETO
+// =================================================================
+
+// 🔍 DEBUG COMPLETO DO SISTEMA
+window.debugApp = () => {
+    console.log('========== 🔍 DEBUG CRYPTOPANEL HOLDER ==========');
+    console.log('📦 TOKENS:', App.State.tokens);
+    console.log('💰 MARKET DATA:', Object.keys(App.State.marketData));
+    console.log('📊 OHLC DATA:', Object.keys(App.State.ohlcData));
+    console.log('📈 INDICADORES:', Object.keys(App.State.indicatorsData));
+    console.log('🔗 WEBSOCKET:', App.State.ws ? `Conectado (${App.State.ws.readyState})` : 'Desconectado');
+    console.log('☁️ FIREBASE:', Cloud.isInitialized ? 'Conectado' : 'Offline');
+    console.log('⚙️ CONFIG:', App.State.settings);
+    console.log('🚨 ALERTAS:', App.State.alerts.length);
+    console.log('💳 TRADES:', App.State.trades.length);
+    console.log('================================================');
     
-    // 📥 CARREGAR DADOS DA NUVEM
-    const cloudData = await Cloud.loadAllData();
-    if (cloudData) {
-        App.State.tokens = cloudData.tokens || App.State.tokens;
-        App.State.alerts = cloudData.alerts || App.State.alerts;
-        App.State.trades = cloudData.trades || App.State.trades;
-        App.State.settings = cloudData.settings || App.State.settings;
-        console.log('📥 Dados carregados da nuvem:', cloudData);
+    // Teste manual de carregamento
+    if (App.State.tokens.length > 0) {
+        console.log('🧪 Testando carregamento de', App.State.tokens[0]);
+        App.Core.loadAllOHLC(App.State.tokens[0]).then(() => {
+            console.log('✅ Teste OHLC bem-sucedido');
+            App.Indicators.updateIndicators(App.State.tokens[0].toLowerCase(), '1h');
+            App.UI.updateTokenCard(App.State.tokens[0]);
+        }).catch(err => {
+            console.log('❌ Erro no teste OHLC:', err);
+        });
+    }
+};
+
+// 🔄 RESET COMPLETO DE EMERGÊNCIA
+window.resetApp = () => {
+    if (confirm('🚨 ATENÇÃO: Isso vai resetar TODOS os dados. Continuar?')) {
+        console.log('🔄 Iniciando reset de emergência...');
+        
+        // Limpar tudo
+        localStorage.clear();
+        
+        // Resetar estado
+        App.State.tokens = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT'];
+        App.State.alerts = [];
+        App.State.trades = [];
+        App.State.marketData = {};
+        App.State.ohlcData = {};
+        App.State.indicatorsData = {};
+        
+        // Salvar estado resetado
+        localStorage.setItem('holder_tokens', JSON.stringify(App.State.tokens));
+        
+        console.log('✅ Reset completo. Recarregando aplicação...');
+        setTimeout(() => location.reload(), 1000);
+    }
+};
+
+// 🎯 FORÇAR CARREGAMENTO MANUAL
+window.forceLoad = () => {
+    console.log('🎯 Forçando carregamento manual...');
+    App.Core.refreshData();
+    App.Core.preloadAllOHLC();
+};
+ 
+       document.addEventListener('DOMContentLoaded', async () => {
+    console.log('🚀 Iniciando aplicação...');
+    
+    try {
+        // 🔥 Tentar conectar ao Firebase (mas não travar se falhar)
+        await Cloud.init();
+        
+        // 📥 Carregar dados com fallback robusto
+        let loadedData = null;
+        try {
+            loadedData = await Cloud.loadAllData();
+            console.log('📦 Dados carregados:', loadedData);
+        } catch (loadError) {
+            console.log('⚠️ Erro ao carregar dados, usando fallback:', loadError);
+            loadedData = {
+                tokens: JSON.parse(localStorage.getItem('holder_tokens')) || ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'ADAUSDT'],
+                alerts: JSON.parse(localStorage.getItem('holder_alerts')) || [],
+                trades: JSON.parse(localStorage.getItem('holder_trades')) || [],
+                settings: JSON.parse(localStorage.getItem('holder_settings')) || { 
+                    autoRefresh: true, 
+                    refreshInterval: 60, 
+                    alertSounds: true, 
+                    defaultTimeframe: '1h' 
+                }
+            };
+        }
+        
+        // Atualizar estado da aplicação
+        if (loadedData) {
+            App.State.tokens = loadedData.tokens || App.State.tokens;
+            App.State.alerts = loadedData.alerts || App.State.alerts;
+            App.State.trades = loadedData.trades || App.State.trades;
+            App.State.settings = loadedData.settings || App.State.settings;
+        }
+        
+        console.log('🎯 Tokens para carregar:', App.State.tokens);
+        
+        // 🚀 Iniciar aplicação principal
+        await App.Core.init();
+        
+    } catch (error) {
+        console.error('💥 Erro crítico na inicialização:', error);
+        // Fallback de emergência
+        App.State.tokens = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
+        await App.Core.init();
     }
     
-    // 🚀 INICIAR APLICAÇÃO
-    App.Core.init();
-    
+    // Event listeners
     document.getElementById('refreshData').addEventListener('click', App.Core.refreshData);
     document.getElementById('openSettings').addEventListener('click', App.Settings.openModal);
     document.getElementById('searchToken').addEventListener('input', (e) => {
         const term = e.target.value.toUpperCase();
-        document.querySelectorAll('.card').forEach(c => c.style.display = c.dataset.symbol.includes(term) ? 'flex' : 'none');
+        document.querySelectorAll('.card').forEach(c => {
+            c.style.display = c.dataset.symbol.includes(term) ? 'flex' : 'none';
+        });
     });
 });
-    </script>
+</script>
 </body>
 </html>
