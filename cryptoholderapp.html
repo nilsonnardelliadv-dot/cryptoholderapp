@@ -1060,42 +1060,41 @@ init: async () => {
                 },
                 
                 startWebSocket: function() {
+    console.log('🔌 Iniciando WebSocket...');
+    
     try {
-        console.log('🔌 Conectando WebSocket...');
+        // Fechar conexão existente
+        if (App.State.ws) {
+            App.State.ws.close();
+        }
+
         const ws = new WebSocket(BINANCE_WS);
         
-        ws.onopen = () => { 
-            console.log("🟢 WebSocket Binance conectado."); 
+        ws.onopen = () => {
+            console.log("🟢 WebSocket Binance CONECTADO!");
             document.getElementById('last-update').innerText = 'Conectado - ' + new Date().toLocaleTimeString();
-        };
-        
-        ws.onerror = (error) => { 
-            console.error("🔴 Erro WebSocket:", error); 
-            document.getElementById('last-update').innerText = 'Erro conexão';
-            setTimeout(() => App.Core.startWebSocket(), 5000);
-        };
-        
-        ws.onclose = () => { 
-            console.log("🟡 WebSocket fechado, reconectando..."); 
-            setTimeout(() => App.Core.startWebSocket(), 3000);
         };
         
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                let updated = false;
+                console.log(`📨 Mensagem recebida: ${data.length} tokens`);
                 
+                let updated = false;
                 data.forEach(t => {
                     const symbol = t.s.toUpperCase();
                     if (App.State.tokens.includes(symbol)) {
-                        App.State.marketData[symbol.toLowerCase()] = { 
-                            symbol: symbol.toLowerCase(), 
-                            lastPrice: parseFloat(t.c), 
-                            priceChangePercent: parseFloat(t.P), 
-                            highPrice: parseFloat(t.h), 
-                            lowPrice: parseFloat(t.l), 
-                            volume: parseFloat(t.v) 
+                        console.log(`💰 Atualizando ${symbol}: $${t.c}`);
+                        
+                        App.State.marketData[symbol.toLowerCase()] = {
+                            symbol: symbol.toLowerCase(),
+                            lastPrice: parseFloat(t.c),
+                            priceChangePercent: parseFloat(t.P),
+                            highPrice: parseFloat(t.h),
+                            lowPrice: parseFloat(t.l),
+                            volume: parseFloat(t.v)
                         };
+                        
                         App.UI.updateTokenCard(symbol);
                         App.Alerts.checkAlerts(symbol, parseFloat(t.c));
                         updated = true;
@@ -1104,17 +1103,28 @@ init: async () => {
                 
                 if (updated) {
                     document.getElementById('last-update').innerText = new Date().toLocaleTimeString();
-                    App.UI.tables(); // Atualizar tabelas também
+                    App.UI.tables();
                 }
                 
-            } catch (parseError) {
-                console.error('Erro ao processar mensagem WebSocket:', parseError);
+            } catch (error) {
+                console.error('❌ Erro ao processar WebSocket:', error);
             }
         };
         
+        ws.onerror = (error) => {
+            console.error("🔴 Erro WebSocket:", error);
+            document.getElementById('last-update').innerText = 'Erro conexão';
+        };
+        
+        ws.onclose = () => {
+            console.log("🟡 WebSocket fechado, reconectando...");
+            setTimeout(() => App.Core.startWebSocket(), 3000);
+        };
+        
         App.State.ws = ws;
-    } catch (wsError) {
-        console.error('Erro ao criar WebSocket:', wsError);
+        
+    } catch (error) {
+        console.error('💥 Erro crítico WebSocket:', error);
         setTimeout(() => App.Core.startWebSocket(), 5000);
     }
 },
