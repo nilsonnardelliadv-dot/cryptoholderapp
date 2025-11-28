@@ -102,6 +102,10 @@
         .ranking-row-mid { background-color: rgba(59, 130, 246, 0.1) !important; }
         .ranking-row-low { background-color: rgba(239, 68, 68, 0.1) !important; }
     </style>
+
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
 </head>
 <body class="antialiased min-h-screen flex flex-col font-sans selection:bg-brand-500 selection:text-white">
 
@@ -439,6 +443,99 @@
     <script>
         const BINANCE_REST = "https://api.binance.com/api/v3/klines";
         const BINANCE_WS = "wss://stream.binance.com:9443/ws/!ticker@arr";
+
+// === CONFIGURAÇÃO FIREBASE - COLE SUAS CREDENCIAIS AQUI ===
+const FirebaseConfig = {
+    // COLE AQUI O OBJETO QUE VOCÊ COPIOU DO FIREBASE
+    apiKey: "AIzaSyCrl8i93fgGXZ7yrfZWfcYDq3hea1SBwok",
+    authDomain: "cryptopanel-holder.firebaseapp.com",
+    projectId: "cryptopanel-holder", // ← MAIS IMPORTANTE!
+    storageBucket: "cryptopanel-holder.firebasestorage.app",
+    messagingSenderId: "701745977616",
+    appId: "1:701745977616:web:925d19ab04acfac59ead95"
+};
+
+// === SISTEMA DE NUVEM ===
+const Cloud = {
+    db: null,
+    isInitialized: false,
+    
+    init: async () => {
+        if (Cloud.isInitialized) return true;
+        
+        try {
+            // Inicializa Firebase
+            firebase.initializeApp(FirebaseConfig);
+            Cloud.db = firebase.firestore();
+            Cloud.isInitialized = true;
+            console.log('✅ Firebase conectado');
+            return true;
+        } catch (error) {
+            console.log('📱 Modo local (sem nuvem)');
+            return false;
+        }
+    },
+    
+    getUserId: () => {
+        let userId = localStorage.getItem('crypto_user_id');
+        if (!userId) {
+            userId = 'user_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('crypto_user_id', userId);
+        }
+        return userId;
+    },
+    
+    saveAllData: async () => {
+        // Salva localmente primeiro (fallback)
+        localStorage.setItem('holder_tokens', JSON.stringify(App.State.tokens));
+        localStorage.setItem('holder_alerts', JSON.stringify(App.State.alerts));
+        localStorage.setItem('holder_trades', JSON.stringify(App.State.trades));
+        localStorage.setItem('holder_settings', JSON.stringify(App.State.settings));
+        
+        if (!Cloud.db) return false;
+        
+        try {
+            const userData = {
+                tokens: App.State.tokens,
+                alerts: App.State.alerts,
+                trades: App.State.trades,
+                settings: App.State.settings,
+                lastUpdate: new Date().toISOString()
+            };
+            
+            await Cloud.db.collection('cryptoUsers').doc(Cloud.getUserId()).set(userData);
+            console.log('💾 Dados salvos na nuvem');
+            return true;
+        } catch (error) {
+            console.log('⚠️ Salvamento local (sem nuvem)');
+            return false;
+        }
+    },
+    
+    loadAllData: async () => {
+        // Tenta carregar da nuvem primeiro
+        if (Cloud.db) {
+            try {
+                const doc = await Cloud.db.collection('cryptoUsers').doc(Cloud.getUserId()).get();
+                if (doc.exists) {
+                    console.log('📥 Dados carregados da nuvem');
+                    return doc.data();
+                }
+            } catch (error) {
+                console.log('❌ Erro ao carregar da nuvem');
+            }
+        }
+        
+        // Fallback para localStorage
+        console.log('📥 Carregando dados locais');
+        return {
+            tokens: JSON.parse(localStorage.getItem('holder_tokens')) || ['BTCUSDT', 'ETHUSDT'],
+            alerts: JSON.parse(localStorage.getItem('holder_alerts')) || [],
+            trades: JSON.parse(localStorage.getItem('holder_trades')) || [],
+            settings: JSON.parse(localStorage.getItem('holder_settings')) || { autoRefresh: true, refreshInterval: 60 }
+        };
+    }
+};
 
         const App = {
             State: {
@@ -1724,7 +1821,10 @@
 
             // 7. ALERTAS PROFISSIONAIS - VERSÃO MODIFICADA COM LIMITE DE 15%
 Alerts: {
-    saveToStorage: () => localStorage.setItem("holder_alerts", JSON.stringify(App.State.alerts)),
+    saveToStorage: () => {
+    localStorage.setItem("holder_alerts", JSON.stringify(App.State.alerts));
+    Cloud.saveAllData(); 
+},
     
     openModal: (btn = null) => {
         const modal = document.getElementById('alertsModal');
@@ -2067,7 +2167,10 @@ Alerts: {
 
             // 8. TRADE (simulador)
             Trade: {
-                save: () => localStorage.setItem("holder_trades", JSON.stringify(App.State.trades)),
+                save: () => {
+    localStorage.setItem("holder_trades", JSON.stringify(App.State.trades));
+    Cloud.saveAllData(); 
+},
                 exec: (btn, type) => { 
                     let c = btn.closest('.card');
                     let s = c.dataset.symbol;
@@ -2409,6 +2512,7 @@ Alerts: {
                         if (data.symbol) {
                             App.State.tokens.push(symbol);
                             localStorage.setItem('holder_tokens', JSON.stringify(App.State.tokens));
+                            Cloud.saveAllData();
                             location.reload();
                         } else { 
                             alert('Token não encontrado.'); 
@@ -2421,6 +2525,7 @@ Alerts: {
                 rem: (t) => {
                     App.State.tokens = App.State.tokens.filter(x=>x!==t);
                     localStorage.setItem('holder_tokens', JSON.stringify(App.State.tokens));
+                    Cloud.saveAllData();
                     location.reload();
                 },
                 
