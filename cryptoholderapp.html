@@ -1722,7 +1722,7 @@
                 }
             },
 
-            // 7. ALERTAS PROFISSIONAIS - VERSÃO CORRIGIDA
+            // 7. ALERTAS PROFISSIONAIS - VERSÃO MODIFICADA COM LIMITE DE 15%
 Alerts: {
     saveToStorage: () => localStorage.setItem("holder_alerts", JSON.stringify(App.State.alerts)),
     
@@ -1782,7 +1782,9 @@ Alerts: {
             percent,
             notes,
             createdAt: new Date().toLocaleString(),
-            triggered: false
+            triggered: false,
+            triggeredAt: null,
+            actualPrice: null
         };
         
         App.State.alerts.push(alert);
@@ -1811,7 +1813,9 @@ Alerts: {
             percent,
             notes: `Fibonacci ${levelLabel}`,
             createdAt: new Date().toLocaleString(),
-            triggered: false
+            triggered: false,
+            triggeredAt: null,
+            actualPrice: null
         };
         App.State.alerts.push(alert);
         App.Alerts.saveToStorage();
@@ -1894,31 +1898,76 @@ Alerts: {
         });
     },
     
+    // CALCULAR PORCENTAGEM RESTANTE PARA ALVO
+    calculateRemainingPercent: (alert) => {
+        const currentPrice = App.State.marketData[alert.symbol.toLowerCase()]?.lastPrice || alert.currentPrice;
+        if (!currentPrice) return alert.percent;
+        
+        const remainingPercent = ((alert.targetPrice - currentPrice) / currentPrice) * 100;
+        return Math.abs(remainingPercent);
+    },
+    
+    // OBTER CLASSE DE COR BASEADO NO STATUS
+    getAlertColorClass: (alert) => {
+        if (alert.triggered) {
+            return 'bg-green-900/20 border-green-500';
+        }
+        
+        const remainingPercent = App.Alerts.calculateRemainingPercent(alert);
+        if (remainingPercent <= 15) { // Alterado de 2% para 15%
+            return 'bg-yellow-900/20 border-yellow-500';
+        } else {
+            return 'bg-red-900/20 border-red-500';
+        }
+    },
+    
+    // OBTER COR DO TEXTO BASEADO NO STATUS
+    getAlertTextColor: (alert) => {
+        if (alert.triggered) {
+            return 'text-green-400';
+        }
+        
+        const remainingPercent = App.Alerts.calculateRemainingPercent(alert);
+        if (remainingPercent <= 15) { // Alterado de 2% para 15%
+            return 'text-yellow-400';
+        } else {
+            return 'text-red-400';
+        }
+    },
+    
     renderAlertsPanel: () => {
         const container = document.getElementById('alertsContent');
-        const activeAlerts = App.State.alerts.filter(alert => !alert.triggered).slice(0, 10);
         
-        if (activeAlerts.length === 0) {
+        if (App.State.alerts.length === 0) {
             container.innerHTML = '<div class="text-gray-500 text-center py-4 text-sm">Nenhum alerta ativo</div>';
             return;
         }
         
+        // Ordenar alertas por porcentagem restante (mais próximo primeiro)
+        const sortedAlerts = [...App.State.alerts].sort((a, b) => {
+            const aRemaining = App.Alerts.calculateRemainingPercent(a);
+            const bRemaining = App.Alerts.calculateRemainingPercent(b);
+            return aRemaining - bRemaining;
+        });
+        
         container.innerHTML = '';
-        activeAlerts.forEach(alert => {
+        sortedAlerts.forEach(alert => {
             const currentPrice = App.State.marketData[alert.symbol.toLowerCase()]?.lastPrice || alert.currentPrice;
-            const percent = currentPrice ? ((alert.targetPrice - currentPrice) / currentPrice) * 100 : 0;
+            const remainingPercent = App.Alerts.calculateRemainingPercent(alert);
             const isBuy = alert.type === 'buy';
             
+            const colorClass = App.Alerts.getAlertColorClass(alert);
+            const textColorClass = App.Alerts.getAlertTextColor(alert);
+            
             const alertEl = document.createElement('div');
-            alertEl.className = `bg-dark-800 p-3 rounded border ${
-                isBuy ? 'border-green-500' : 'border-orange-500'
-            } mb-2`;
+            alertEl.className = `p-3 rounded border mb-2 ${colorClass}`;
             
             alertEl.innerHTML = `
                 <div class="flex justify-between items-start">
                     <div>
-                        <strong class="${isBuy ? 'text-green-400' : 'text-orange-400'}">${alert.symbol.replace('USDT', '')}</strong>
+                        <strong class="${textColorClass}">${alert.symbol.replace('USDT', '')}</strong>
                         <span class="text-xs ${isBuy ? 'text-green-500' : 'text-orange-500'} ml-2">${isBuy ? 'COMPRA' : 'VENDA'}</span>
+                        ${alert.triggered ? '<span class="text-xs text-green-300 ml-2">✓ ATINGIDO</span>' : ''}
                     </div>
                     <button onclick="App.Alerts.remove(${alert.id})" class="text-gray-500 hover:text-red-500 text-xs">
                         <i class="fa-solid fa-times"></i>
@@ -1934,8 +1983,13 @@ Alerts: {
                         <span class="text-white">$${currentPrice.toFixed(4)}</span>
                     </div>
                     <div class="flex justify-between">
-                        <span class="text-gray-400">Falta:</span>
-                        <span class="${percent <= 0 ? 'text-green-400' : 'text-red-400'}">${percent.toFixed(2)}%</span>
+                        <span class="text-gray-400">${alert.triggered ? 'Atingido em:' : 'Falta:'}</span>
+                        <span class="${textColorClass}">
+                            ${alert.triggered ? 
+                                alert.triggeredAt.split(' ')[0] : 
+                                remainingPercent.toFixed(2) + '%'
+                            }
+                        </span>
                     </div>
                     ${alert.notes ? `<div class="mt-1 text-xs text-gray-500">${alert.notes}</div>` : ''}
                     <div class="mt-1 text-xs text-gray-500">Criado: ${alert.createdAt}</div>
@@ -1951,29 +2005,48 @@ Alerts: {
         if (!card) return;
         
         const alertList = card.querySelector('.alert-list');
-        const alerts = App.State.alerts.filter(alert => 
-            alert.symbol === symbol && !alert.triggered
-        );
+        const alerts = App.State.alerts.filter(alert => alert.symbol === symbol);
         
         if (alerts.length === 0) {
             alertList.innerHTML = '<div class="text-gray-500 text-center py-2 text-xs">Nenhum alerta</div>';
             return;
         }
         
+        // Ordenar alertas por porcentagem restante (mais próximo primeiro)
+        const sortedAlerts = [...alerts].sort((a, b) => {
+            const aRemaining = App.Alerts.calculateRemainingPercent(a);
+            const bRemaining = App.Alerts.calculateRemainingPercent(b);
+            return aRemaining - bRemaining;
+        });
+        
         alertList.innerHTML = '';
-        alerts.forEach(alert => {
+        sortedAlerts.forEach(alert => {
             const currentPrice = App.State.marketData[symbol.toLowerCase()]?.lastPrice || alert.currentPrice;
-            const percent = currentPrice ? ((alert.targetPrice - currentPrice) / currentPrice) * 100 : 0;
+            const remainingPercent = App.Alerts.calculateRemainingPercent(alert);
             const isBuy = alert.type === 'buy';
             
+            let bgColor = 'bg-red-900/30';
+            let borderColor = 'border-red-700/30';
+            let textColor = 'text-red-400';
+            
+            if (alert.triggered) {
+                bgColor = 'bg-green-900/30';
+                borderColor = 'border-green-700/30';
+                textColor = 'text-green-400';
+            } else if (remainingPercent <= 15) { // Alterado de 2% para 15%
+                bgColor = 'bg-yellow-900/30';
+                borderColor = 'border-yellow-700/30';
+                textColor = 'text-yellow-400';
+            }
+            
             const alertEl = document.createElement('div');
-            alertEl.className = `flex justify-between items-center p-1 rounded text-xs ${
-                isBuy ? 'bg-green-900/30 border border-green-700/30' : 'bg-orange-900/30 border border-orange-700/30'
-            } mb-1`;
+            alertEl.className = `flex justify-between items-center p-1 rounded text-xs ${bgColor} ${borderColor} border mb-1`;
             alertEl.innerHTML = `
-                <span class="${isBuy ? 'text-green-400' : 'text-orange-400'} font-bold">${isBuy ? 'C' : 'V'}</span>
+                <span class="${textColor} font-bold">${isBuy ? 'C' : 'V'}</span>
                 <span class="text-white text-[10px]">$${alert.targetPrice.toFixed(2)}</span>
-                <span class="${percent <= 0 ? 'text-green-400' : 'text-red-400'} text-[10px]">${percent.toFixed(1)}%</span>
+                <span class="${textColor} text-[10px]">
+                    ${alert.triggered ? '✓' : remainingPercent.toFixed(1) + '%'}
+                </span>
                 <button onclick="App.Alerts.remove(${alert.id})" class="text-red-500 text-[8px] hover:text-red-300">×</button>
             `;
             
